@@ -1,9 +1,11 @@
 package scorex.transaction.state.database.blockchain
 
-import java.io.File
+import java.io.{File, FileReader}
 
+import com.opencsv.CSVReader
 import com.typesafe.config.ConfigFactory
 import org.h2.mvstore.MVStore
+import scopt.OptionParser
 import scorex.account.PrivateKeyAccount
 import scorex.api.http.BlocksApiRoute
 import scorex.app.ApplicationVersion
@@ -12,16 +14,19 @@ import scorex.consensus.ConsensusModule
 import scorex.consensus.nxt.NxtLikeConsensusBlockData
 import scorex.crypto.encode.Base58
 import scorex.network.TransactionalMessagesRepo
-import scorex.transaction.{SimpleTransactionModule, Transaction}
+import scorex.transaction.{PaymentTransaction, SimpleTransactionModule, Transaction}
 import scorex.waves.consensus.WavesConsensusModule
 import scorex.waves.settings.WavesSettings
 import scorex.waves.transaction.WavesTransactionModule
 
+import scala.collection.JavaConversions._
 import scala.reflect.runtime.universe._
 import scala.util.Failure
 
-
-class Rebuild(val settingsFilename: String) extends scorex.app.Application {
+class Rebuild(val settingsFilename: File, destination: File,
+              accounts: Seq[(String, Array[Byte], Array[Byte], Array[Byte])],
+              transactionsToReplace: Map[String, Transaction],
+              transactionsToRemove: Seq[String]) extends scorex.app.Application {
   override val applicationName = "waves"
   private val appConf = ConfigFactory.load().getConfig("app")
   override val appVersion = {
@@ -34,30 +39,22 @@ class Rebuild(val settingsFilename: String) extends scorex.app.Application {
   override lazy val apiTypes = Seq(typeOf[BlocksApiRoute])
 
 
-  override implicit lazy val settings = new WavesSettings(settingsFilename)
+  override implicit lazy val settings = new WavesSettings(settingsFilename.getPath)
   override implicit lazy val consensusModule = new WavesConsensusModule()
   override implicit lazy val transactionModule: SimpleTransactionModule = new WavesTransactionModule()(settings, this)
 
 
   def rebuild() = {
-    //Data to change
-    val transactionsToExclude: Seq[String] =
-      Seq("36vuDUz8RKXAdcpQKPH4bfL6qFdMHGzCaDCNxKGyFda9QKWMXJHP7Ur5bUGe3qSxEqCCSUXmEzMo7uW8WkuubAgZ",
-        "BkQUDsDygQZfyv6pPqiRZyEYPhM3fAUMJnodDFNkqrNmY8h1HKYaFy3sTgBaXJTxggx35mwF2ghrbbnTwvy4Qvn")
-    val accountSeeds: Seq[String] = Seq("9y3B5caxAGbAZNnqYLt7JzzphbsRokhV5kVUVajzf6j7")
-    val folder = "/tmp/scorex/waves/data/"
-    val newBlockchainFilename = folder + "bnew.dat"
+    destination.mkdirs()
+    destination.delete()
 
-
-    new File(folder).mkdirs()
-    new File(newBlockchainFilename).delete()
     val oldBlockchain = transactionModule.blockStorage.history.asInstanceOf[StoredBlockchain]
-    val newStorage = new MVStore.Builder().fileName(newBlockchainFilename).compress().open()
+    val newStorage = new MVStore.Builder().fileName(destination.getPath).compress().open()
     val newBlockchain = new StoredBlockchain(newStorage)
     val newState = new StoredState(newStorage)
-    val accounts: Map[String, PrivateKeyAccount] = accountSeeds.map { seed =>
-      new PrivateKeyAccount(Base58.decode(seed).get)
-    }.map(p => p.address -> p).toMap
+
+    val privateKeys: Map[String, PrivateKeyAccount] = accounts.map(a =>
+      a._1 -> new PrivateKeyAccount(a._2, a._3, a._4)).toMap
 
 
     var ref: Array[Byte] = oldBlockchain.blockAt(1).get.referenceField.value
@@ -69,17 +66,22 @@ class Rebuild(val settingsFilename: String) extends scorex.app.Application {
 
     (2 to oldBlockchain.height()) foreach { height =>
       val oldBlock = oldBlockchain.blockAt(height).get
-      val transactions: Seq[Transaction] = oldBlock.transactions
-        .filter(tx => !transactionsToExclude.contains(Base58.encode(tx.signature)))
-      val account: PrivateKeyAccount = accounts(oldBlock.signerDataField.value.generator.address)
+
+      val cleanBlockTransactions: Seq[Transaction] = oldBlock.transactions
+        .filterNot(t => transactionsToRemove contains Base58.encode(t.signature))
+
+      val blockTransactions: Seq[Transaction] = cleanBlockTransactions.
+        map(t => transactionsToReplace.getOrElse(Base58.encode(t.signature), t))
+
+      val privateKey: PrivateKeyAccount = privateKeys(oldBlock.signerDataField.value.generator.address)
       implicit val cm: ConsensusModule[NxtLikeConsensusBlockData] = consensusModule
 
       val newBlock = Block.buildAndSign(oldBlock.versionField.value,
         oldBlock.timestampField.value,
         ref,
         oldBlock.consensusDataField.value.asInstanceOf[NxtLikeConsensusBlockData],
-        transactions,
-        account)(cm, transactionModule)
+        blockTransactions,
+        privateKey)(cm, transactionModule)
 
       newBlockchain.appendBlock(newBlock) match {
         case Failure(e) => throw e
@@ -104,11 +106,61 @@ class Rebuild(val settingsFilename: String) extends scorex.app.Application {
   override lazy val additionalMessageSpecs = TransactionalMessagesRepo.specs
 }
 
+case class RebuildConfiguration(
+                                 config: File = new File("settings-local1.json"),
+                                 destination: File = new File("newBlockchain.dat"),
+                                 accounts: File = new File("accounts.csv"),
+                                 transactions: File = new File("transactions.csv"))
+
 object Rebuild extends App {
-  val filename = args.headOption.getOrElse("settings-local1.json")
+  override def main(args: Array[String]) {
+    val parser = new OptionParser[RebuildConfiguration]("rebuild") {
+      head("Rebuild - Waves blockchain rebuild tool", "v1.0.0")
+      opt[File]('c', "config") required() valueName "<file>" action { (x, c) =>
+        c.copy(config = x)
+      } validate { x =>
+        if (x.exists()) success else failure(s"Failed to open file $x")
+      } text "path configuration file"
+      opt[File]('d', "destination") required() valueName "<file>" action { (x, c) =>
+        c.copy(destination = x)
+      } text "path new blockchain file"
+      opt[File]('a', "accounts") required() valueName "<file>" action { (x, c) =>
+        c.copy(accounts = x)
+      } validate { x =>
+        if (x.exists()) success else failure(s"Failed to open file $x")
+      } text "path generation accounts file"
+      opt[File]('t', "transactions") required() valueName "<file>" action { (x, c) =>
+        c.copy(transactions = x)
+      } validate { x =>
+        if (x.exists()) success else failure(s"Failed to open file $x")
+      } text "path transactions substitution file"
+      help("help") text "display this help message"
+    }
+    parser.parse(args, RebuildConfiguration()) match {
+      case Some(config) =>
+        val accountsReader = new CSVReader(new FileReader(config.accounts))
+        val accounts = accountsReader.readAll.filter(row => row.length == 4).map(
+          row => (row(0).trim, Base58.decode(row(1)).get, Base58.decode(row(2)).get, Base58.decode(row(3)).get))
+        accountsReader.close()
 
-  val application = new Rebuild(filename)
-  application.rebuild()
+        val transactionsToReplaceReader = new CSVReader(new FileReader(config.transactions))
+        val transactionsToReplace: Map[String, Transaction] =
+          transactionsToReplaceReader.readAll.filter(row => row.length == 2)
+            .map(row => row(0) -> PaymentTransaction.parseBytes(Base58.decode(row(1).trim).get).get)
+            .toMap[String, Transaction]
+        transactionsToReplaceReader.close()
 
+        val transactionsToRemoveReader = new CSVReader(new FileReader(config.transactions))
+        val transactionsToRemove: Seq[String] =
+          transactionsToRemoveReader.readAll().filter(row => row.length == 1)
+            .map(row => row(0).trim)
+        transactionsToRemoveReader.close()
 
+        val rebuild =
+          new Rebuild(config.config, config.destination, accounts, transactionsToReplace, transactionsToRemove)
+        rebuild.rebuild()
+      case None =>
+        println("Incorrect parameters")
+    }
+  }
 }

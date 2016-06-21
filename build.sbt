@@ -12,9 +12,11 @@ scalaVersion := "2.11.8"
 
 resolvers += "SonaType" at "https://oss.sonatype.org/content/groups/public"
 
-val modulesVersion = "1.2.9-SNAPSHOT"
+val modulesVersion = "1.2.8"
 
 libraryDependencies ++= Seq(
+  "com.opencsv" % "opencsv" % "3.7",
+  "com.github.scopt" %% "scopt" % "3.4.+",
   "org.consensusresearch" %% "scorex-basics" % modulesVersion,
   "org.consensusresearch" %% "scorex-consensus" % modulesVersion,
   "org.consensusresearch" %% "scorex-transaction" % modulesVersion,

@@ -18,3 +18,7 @@ scorex-*.log
 
 # local settings
 localsettings.json
+
+*.dat
+*.csv
+*.log
