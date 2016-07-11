@@ -8,10 +8,10 @@
     "knownPeers": [],
     "maxConnections": 10
   },
-  "walletDir": "/tmp/scorex/waves/wallet",
+  "walletDir": "/home/alexeykiselev/test/waves-mainnet/wallet/",
   "walletSeed": "",
   "walletPassword": "mycookies",
-  "dataDir": "/tmp/scorex/waves/data",
+  "dataDir": "/home/alexeykiselev/test/waves-mainnet/data/",
   "rpcPort": 6869,
   "rpcAddress": "0.0.0.0",
   "rpcAllowed": [],
@@ -21,5 +21,6 @@
   "maxRollback": 100,
   "history": "blockchain",
   "offlineGeneration": false,
-  "apiKeyHash":""
+  "apiKeyHash":"",
+  "mininingThreads": 0
 }

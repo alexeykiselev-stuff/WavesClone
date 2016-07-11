@@ -58,10 +58,11 @@ dependencyOverrides in ThisBuild ++= Set(
   "net.databinder.dispatch" % "dispatch-core_2.11" % "0.11.3",
   "org.apache.commons" % "commons-lang3" % "3.3.2",
   "org.bitlet" % "weupnp" % "0.1.4",
+  "org.brianmckenna" % "wartremover_2.11" % "0.14",
   "org.codehaus.woodstox" % "stax2-api" % "3.1.4",
-  "org.consensusresearch" % "scorex-basics_2.11" % "1.2.8",
-  "org.consensusresearch" % "scorex-consensus_2.11" % "1.2.8",
-  "org.consensusresearch" % "scorex-transaction_2.11" % "1.2.8",
+  "org.consensusresearch" % "scorex-basics_2.11" % "1.2.8-LOCAL",
+  "org.consensusresearch" % "scorex-consensus_2.11" % "1.2.8-LOCAL",
+  "org.consensusresearch" % "scorex-transaction_2.11" % "1.2.8-LOCAL",
   "org.consensusresearch" % "scrypto_2.11" % "1.0.4",
   "org.javassist" % "javassist" % "3.18.2-GA",
   "org.joda" % "joda-convert" % "1.7",
@@ -73,7 +74,7 @@ dependencyOverrides in ThisBuild ++= Set(
   "org.reactivestreams" % "reactive-streams" % "1.0.0",
   "org.reflections" % "reflections" % "0.9.10",
   "org.scala-lang.modules" % "scala-java8-compat_2.11" % "0.7.0",
-  "org.scala-lang.modules" % "scala-parser-combinators_2.11" % "1.0.4",
+  "org.scala-lang.modules" % "scala-parser-combinators_2.11" % "1.0.3",
   "org.scala-lang.modules" % "scala-xml_2.11" % "1.0.1",
   "org.scala-sbt" % "test-interface" % "1.0",
   "org.scala-stm" % "scala-stm_2.11" % "0.7",
@@ -85,4 +86,4 @@ dependencyOverrides in ThisBuild ++= Set(
   "org.whispersystems" % "curve25519-java" % "0.2.4",
   "org.yaml" % "snakeyaml" % "1.12"
 )
-// LIBRARY_DEPENDENCIES_HASH cd43636ba7ddb2f1a823d7a5b7f71319c7ed958f
+// LIBRARY_DEPENDENCIES_HASH 211001cc6069b7a58dd528da9e5cb3079dbc5794

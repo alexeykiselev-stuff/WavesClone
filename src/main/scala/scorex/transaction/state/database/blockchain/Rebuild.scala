@@ -5,6 +5,7 @@ import java.io.{File, FileReader}
 import com.opencsv.CSVReader
 import com.typesafe.config.ConfigFactory
 import org.h2.mvstore.MVStore
+import org.joda.time.Duration
 import scopt.OptionParser
 import scorex.account.PrivateKeyAccount
 import scorex.api.http.BlocksApiRoute
@@ -60,41 +61,55 @@ class Rebuild(val settingsFilename: File, destination: File,
     var ref: Array[Byte] = oldBlockchain.blockAt(1).get.referenceField.value
     newBlockchain.appendBlock(oldBlockchain.blockAt(1).get)
     newState.processBlock(oldBlockchain.blockAt(1).get)
+    newStorage.close()
     ref = newBlockchain.lastBlock.uniqueId
 
     require(oldBlockchain.height() > 1)
 
-    (2 to oldBlockchain.height()) foreach { height =>
-      val oldBlock = oldBlockchain.blockAt(height).get
+    (2 to oldBlockchain.height() grouped(5000)) foreach { group =>
+      val newStorage = new MVStore.Builder().fileName(destination.getPath).compress().open()
+      val newBlockchain = new StoredBlockchain(newStorage)
+      val newState = new StoredState(newStorage)
 
-      val cleanBlockTransactions: Seq[Transaction] = oldBlock.transactions
-        .filterNot(t => transactionsToRemove contains Base58.encode(t.signature))
+      group foreach { height =>
+        val t0 = System.currentTimeMillis
 
-      val blockTransactions: Seq[Transaction] = cleanBlockTransactions.
-        map(t => transactionsToReplace.getOrElse(Base58.encode(t.signature), t))
+        val oldBlock = oldBlockchain.blockAt(height).get
 
-      val privateKey: PrivateKeyAccount = privateKeys(oldBlock.signerDataField.value.generator.address)
-      implicit val cm: ConsensusModule[NxtLikeConsensusBlockData] = consensusModule
+        val cleanBlockTransactions: Seq[Transaction] = oldBlock.transactions
+          .filterNot(t => transactionsToRemove contains Base58.encode(t.signature))
 
-      val newBlock = Block.buildAndSign(oldBlock.versionField.value,
-        oldBlock.timestampField.value,
-        ref,
-        oldBlock.consensusDataField.value.asInstanceOf[NxtLikeConsensusBlockData],
-        blockTransactions,
-        privateKey)(cm, transactionModule)
+        val blockTransactions: Seq[Transaction] = cleanBlockTransactions.
+          map(t => transactionsToReplace.getOrElse(Base58.encode(t.signature), t))
 
-      newBlockchain.appendBlock(newBlock) match {
-        case Failure(e) => throw e
-        case _ =>
+        val privateKey: PrivateKeyAccount = privateKeys(oldBlock.signerDataField.value.generator.address)
+        implicit val cm: ConsensusModule[NxtLikeConsensusBlockData] = consensusModule
+
+        val newBlock = Block.buildAndSign(oldBlock.versionField.value,
+          oldBlock.timestampField.value,
+          ref,
+          oldBlock.consensusDataField.value.asInstanceOf[NxtLikeConsensusBlockData],
+          blockTransactions,
+          privateKey)(cm, transactionModule)
+
+        newBlockchain.appendBlock(newBlock) match {
+          case Failure(e) => throw e
+          case _ =>
+        }
+
+        newState.processBlock(newBlock) match {
+          case Failure(e) => throw e
+          case _ =>
+        }
+
+        ref = newBlock.uniqueId
+
+        val spent = new Duration(System.currentTimeMillis() - t0)
+        log.info(s"Current height: ${newBlockchain.height}, spent ${spent.getMillis} ms")
       }
-
-      newState.processBlock(newBlock) match {
-        case Failure(e) => throw e
-        case _ =>
-      }
-
-      ref = newBlock.uniqueId
       newStorage.commit()
+      newStorage.compactRewriteFully()
+      newStorage.close()
     }
     log.info(s"Blockchain recovered with ${oldBlockchain.height()}!")
     stopAll()

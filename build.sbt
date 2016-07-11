@@ -12,7 +12,7 @@ scalaVersion := "2.11.8"
 
 resolvers += "SonaType" at "https://oss.sonatype.org/content/groups/public"
 
-val modulesVersion = "1.2.8"
+val modulesVersion = "1.2.8-LOCAL"
 
 libraryDependencies ++= Seq(
   "com.opencsv" % "opencsv" % "3.7",
@@ -29,15 +29,18 @@ libraryDependencies ++= Seq(
 
 
 //assembly settings
-assemblyJarName in assembly := "waves.jar"
+assemblyJarName in assembly := "rebuild.jar"
 
 test in assembly := {}
 
-mainClass in assembly := Some("scorex.waves.Application")
+mainClass in assembly := Some("scorex.transaction.state.database.blockchain.Rebuild")
 
 assemblyMergeStrategy in assembly := {
   case "application.conf" => MergeStrategy.concat
+  case "logback.xml" => MergeStrategy.first
   case x =>
     val oldStrategy = (assemblyMergeStrategy in assembly).value
     oldStrategy(x)
 }
+
+wartremoverWarnings ++= Warts.all
